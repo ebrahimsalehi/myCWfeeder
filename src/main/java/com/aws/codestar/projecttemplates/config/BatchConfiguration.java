@@ -6,6 +6,11 @@ import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
+import org.springframework.batch.core.launch.JobLauncher;
+import org.springframework.batch.core.launch.support.SimpleJobLauncher;
+import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.repository.support.AbstractJobRepositoryFactoryBean;
+import org.springframework.batch.core.repository.support.JobRepositoryFactoryBean;
 import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.database.BeanPropertyItemSqlParameterSourceProvider;
 import org.springframework.batch.item.database.JdbcBatchItemWriter;
@@ -19,13 +24,17 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
+@EnableScheduling
 @Configuration
 @EnableBatchProcessing
 public class BatchConfiguration {
@@ -38,6 +47,21 @@ public class BatchConfiguration {
 
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Bean
+    public JobRepository myJobRepository() throws Exception {
+        JobRepositoryFactoryBean factory = new JobRepositoryFactoryBean();
+        factory.setDataSource(dataSource);
+        factory.setTransactionManager(transactionManager);
+        factory.setIsolationLevelForCreate("ISOLATION_REPEATABLE_READ");
+        factory.setTablePrefix("BATCH_");
+        factory.setMaxVarCharLength(1000);
+        return factory.getObject();
+    }
+
 
     @Bean("flatFileItemReader")
     public FlatFileItemReader<Person> flatFileItemReader() {
@@ -98,5 +122,18 @@ public class BatchConfiguration {
                 .writer(writer)
                 .build();
     }
+
+    @Bean
+    public JobLauncher myJobLauncher()
+            throws Exception
+    {
+        SimpleJobLauncher jobLauncher = new SimpleJobLauncher();
+        jobLauncher.setJobRepository(myJobRepository());
+        // Using async executor because we do not want to block the joblauncher
+        jobLauncher.setTaskExecutor(new SimpleAsyncTaskExecutor());
+        jobLauncher.afterPropertiesSet();
+        return jobLauncher;
+    }
+
 
 }
